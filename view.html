@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>AI 가위바위보 망치 게임</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+    <style>
+        body { text-align: center; font-family: 'Malgun Gothic', sans-serif; background: #222; color: white; }
+        .container { position: relative; display: inline-block; }
+        canvas { background: #000; border-radius: 15px; width: 100%; max-width: 640px; transform: rotateY(180deg); }
+        .info { margin: 20px; padding: 20px; background: #333; border-radius: 10px; }
+        button { padding: 15px 30px; font-size: 18px; cursor: pointer; border: none; border-radius: 5px; color: white; transition: 0.3s; }
+        #btn-serial { background: #e67e22; }
+        #btn-game { background: #2ecc71; margin-left: 10px; }
+        button:hover { opacity: 0.8; }
+        #status { color: #f1c40f; margin-top: 10px; }
+        #result-display { font-size: 40px; font-weight: bold; margin-top: 15px; color: #ff4757; }
+    </style>
+</head>
+<body>
+    <h1>✊✌️✋ AI 가위바위보 망치</h1>
+    
+    <div class="container">
+        <canvas class="output_canvas"></canvas>
+        <video class="input_video" style="display:none;"></video>
+    </div>
+
+    <div class="info">
+        <button id="btn-serial">1. 아두이노 연결</button>
+        <button id="btn-game">2. 게임 시작!</button>
+        <div id="status">카메라 로딩 중...</div>
+        <div id="result-display">준비하세요!</div>
+    </div>
+
+    <script>
+        const videoElement = document.querySelector('.input_video');
+        const canvasElement = document.querySelector('.output_canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        const statusText = document.getElementById('status');
+        const resultText = document.getElementById('result-display');
+        
+        let port;
+        let currentGesture = "";
+
+        // 1. 아두이노 연결 (Web Serial API)
+        document.getElementById('btn-serial').onclick = async () => {
+            try {
+                port = await navigator.serial.requestPort();
+                await port.open({ baudRate: 9600 });
+                statusText.innerText = "✅ 아두이노가 연결되었습니다!";
+            } catch (err) {
+                statusText.innerText = "❌ 연결 실패: " + err;
+            }
+        };
+
+        // 2. 아두이노로 'H' 신호 보내기 (망치 타격)
+        async function hitHammer() {
+            if (port && port.writable) {
+                const writer = port.writable.getWriter();
+                await writer.write(new Uint8Array([72])); // 'H' 문자 전송
+                writer.releaseLock();
+            }
+        }
+
+        // 3. 가위바위보 판정 로직
+        function onResults(results) {
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                const landmarks = results.multiHandLandmarks[0];
+                
+                // 가이드라인 그리기 (성능을 위해 얇게)
+                drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: '#00FF00', lineWidth: 2});
+
+                // 손가락 펼침 감지
+                const indexOpen = landmarks[8].y < landmarks[6].y;
+                const middleOpen = landmarks[12].y < landmarks[10].y;
+                const ringOpen = landmarks[16].y < landmarks[14].y;
+                const pinkyOpen = landmarks[20].y < landmarks[18].y;
+
+                if (indexOpen && middleOpen && ringOpen && pinkyOpen) currentGesture = "보";
+                else if (indexOpen && middleOpen && !ringOpen) currentGesture = "가위";
+                else if (!indexOpen && !middleOpen && !ringOpen && !pinkyOpen) currentGesture = "바위";
+                
+                statusText.innerText = "감지된 손: " + currentGesture;
+            }
+            canvasCtx.restore();
+        }
+
+        // 4. 게임 진행 및 승패 판정
+        document.getElementById('btn-game').onclick = () => {
+            if (!currentGesture) {
+                alert("카메라에 손을 보여주세요!");
+                return;
+            }
+
+            const rps = ["가위", "바위", "보"];
+            const computer = rps[Math.floor(Math.random() * 3)];
+            
+            let resultMsg = "";
+            if (currentGesture === computer) {
+                resultMsg = `무승부! (컴퓨터: ${computer})`;
+            } else if (
+                (currentGesture === "가위" && computer === "바위") ||
+                (currentGesture === "바위" && computer === "보") ||
+                (currentGesture === "보" && computer === "가위")
+            ) {
+                resultMsg = `패배! 🔨 (컴퓨터: ${computer})`;
+                hitHammer(); // 지면 망치 작동!
+            } else {
+                resultMsg = `승리! 🎉 (컴퓨터: ${computer})`;
+            }
+            resultText.innerText = resultMsg;
+        };
+
+        // 5. MediaPipe 설정 (성능 최적화)
+        const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 0, // 0으로 설정하여 속도 최적화
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+        hands.onResults(onResults);
+
+        const camera = new Camera(videoElement, {
+            onFrame: async () => {
+                await hands.send({image: videoElement});
+            },
+            width: 640,
+            height: 480
+        });
+        camera.start();
+    </script>
+</body>
+</html>
