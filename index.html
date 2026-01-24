@@ -2,35 +2,38 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>AI 가위바위보 망치 게임 (Bluetooth)</title>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+    <title>AI 가위바위보 망치 게임 (USB Serial)</title>
+    <script src="https://cdn.jsdelivr.net"></script>
+    <script src="https://cdn.jsdelivr.net"></script>
+    <script src="https://cdn.jsdelivr.net"></script>
     <style>
-        body { text-align: center; font-family: 'Malgun Gothic', sans-serif; background: #222; color: white; }
-        .container { position: relative; display: inline-block; }
-        canvas { background: #000; border-radius: 15px; width: 100%; max-width: 640px; transform: rotateY(180deg); }
-        .info { margin: 20px; padding: 20px; background: #333; border-radius: 10px; }
-        button { padding: 15px 30px; font-size: 18px; cursor: pointer; border: none; border-radius: 5px; color: white; transition: 0.3s; margin: 5px; }
-        #btn-bt { background: #3498db; } /* 블루투스 버튼 색상 */
-        #btn-game { background: #2ecc71; }
-        button:hover { opacity: 0.8; }
-        #status { color: #f1c40f; margin-top: 10px; }
-        #result-display { font-size: 40px; font-weight: bold; margin-top: 15px; color: #ff4757; }
+        body { text-align: center; font-family: 'Malgun Gothic', sans-serif; background: #1a1a1a; color: white; margin: 0; padding: 20px; }
+        .container { position: relative; display: inline-block; border: 5px solid #444; border-radius: 20px; overflow: hidden; background: #000; }
+        canvas { transform: rotateY(180deg); display: block; max-width: 100%; height: auto; }
+        .info-panel { margin: 20px auto; max-width: 600px; padding: 20px; background: #333; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
+        button { padding: 15px 25px; font-size: 18px; font-weight: bold; cursor: pointer; border: none; border-radius: 8px; transition: 0.2s; margin: 10px; }
+        #btn-serial { background: #ff9f43; color: white; }
+        #btn-game { background: #10ac84; color: white; }
+        button:hover { opacity: 0.8; transform: scale(1.05); }
+        button:disabled { background: #555; cursor: not-allowed; }
+        #status { color: #feca57; font-size: 1.2rem; margin-bottom: 10px; }
+        #result-display { font-size: 2.5rem; font-weight: bold; color: #ff6b6b; min-height: 60px; margin-top: 10px; }
+        .gesture-badge { display: inline-block; padding: 5px 15px; background: #576574; border-radius: 20px; margin-top: 5px; }
     </style>
 </head>
 <body>
-    <h1>✊✌️✋ AI 블루투스 망치 게임</h1>
+    <h1>✊✌️✋ AI 로봇망치 게임</h1>
     
     <div class="container">
-        <canvas class="output_canvas"></canvas>
+        <canvas class="output_canvas" width="640" height="480"></canvas>
         <video class="input_video" style="display:none;"></video>
     </div>
 
-    <div class="info">
-        <button id="btn-bt">1. 블루투스 연결</button>
+    <div class="info-panel">
+        <div id="status">아두이노 연결이 필요합니다.</div>
+        <button id="btn-serial">1. 아두이노(USB) 연결</button>
         <button id="btn-game">2. 게임 시작!</button>
-        <div id="status">카메라 로딩 중...</div>
+        <div class="gesture-badge">인식 결과: <span id="current-gesture">대기 중...</span></div>
         <div id="result-display">준비하세요!</div>
     </div>
 
@@ -40,37 +43,35 @@
         const canvasCtx = canvasElement.getContext('2d');
         const statusText = document.getElementById('status');
         const resultText = document.getElementById('result-display');
+        const gestureText = document.getElementById('current-gesture');
         
-        let bluetoothCharacteristic; // 블루투스 특성 저장
+        let port;
         let currentGesture = "";
 
-        // 1. 블루투스 연결 (Web Bluetooth API)
-        document.getElementById('btn-bt').onclick = async () => {
+        // 1. Web Serial 연결 (USB)
+        document.getElementById('btn-serial').onclick = async () => {
             try {
-                const device = await navigator.bluetooth.requestDevice({
-                    filters: [{ namePrefix: 'HC' }], // 모듈 이름에 따라 수정 (예: HC-06)
-                    optionalServices: ['0000ffe0-0000-1000-8000-00805f9b34fb'] // HM-10/HC-05 표준 서비스 UUID
-                });
-                const server = await device.gatt.connect();
-                const service = await server.getPrimaryService('0000ffe0-0000-1000-8000-00805f9b34fb');
-                bluetoothCharacteristic = await service.getCharacteristic('0000ffe1-0000-1000-8000-00805f9b34fb');
-                
-                statusText.innerText = "✅ 블루투스 연결 완료!";
+                port = await navigator.serial.requestPort();
+                await port.open({ baudRate: 9600 });
+                statusText.innerText = "✅ 아두이노 연결됨 (USB)";
+                statusText.style.color = "#1dd1a1";
             } catch (err) {
-                console.error(err);
-                statusText.innerText = "❌ 연결 실패: " + err;
+                statusText.innerText = "❌ 연결 오류: " + err.message;
             }
         };
 
-        // 2. 블루투스로 'H' 신호 보내기
+        // 2. 아두이노로 'H' 신호 전송
         async function hitHammer() {
-            if (bluetoothCharacteristic) {
-                const encoder = new TextEncoder();
-                await bluetoothCharacteristic.writeValue(encoder.encode('H')); // 'H' 전송
+            if (port && port.writable) {
+                const writer = port.writable.getWriter();
+                const data = new Uint8Array([72]); // ASCII 'H'
+                await writer.write(data);
+                writer.releaseLock();
+                console.log("망치 신호(H) 전송 완료");
             }
         }
 
-        // 3. 가위바위보 판정 로직 (기존 유지)
+        // 3. MediaPipe 손 인식 로직
         function onResults(results) {
             canvasCtx.save();
             canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
@@ -78,52 +79,74 @@
 
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                 const landmarks = results.multiHandLandmarks[0];
-                drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: '#00FF00', lineWidth: 2});
+                drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: '#00FF00', lineWidth: 3});
+                drawLandmarks(canvasCtx, landmarks, {color: '#FF0000', lineWidth: 1});
 
+                // 손가락 펼침 판정 (정확한 마디 좌표 비교)
                 const indexOpen = landmarks[8].y < landmarks[6].y;
                 const middleOpen = landmarks[12].y < landmarks[10].y;
                 const ringOpen = landmarks[16].y < landmarks[14].y;
                 const pinkyOpen = landmarks[20].y < landmarks[18].y;
 
-                if (indexOpen && middleOpen && ringOpen && pinkyOpen) currentGesture = "보";
-                else if (indexOpen && middleOpen && !ringOpen) currentGesture = "가위";
-                else if (!indexOpen && !middleOpen && !ringOpen && !pinkyOpen) currentGesture = "바위";
-                
-                statusText.innerText = "감지된 손: " + currentGesture;
+                if (indexOpen && middleOpen && ringOpen && pinkyOpen) {
+                    currentGesture = "보";
+                } else if (indexOpen && middleOpen && !ringOpen && !pinkyOpen) {
+                    currentGesture = "가위";
+                } else if (!indexOpen && !middleOpen && !ringOpen && !pinkyOpen) {
+                    currentGesture = "바위";
+                } else {
+                    currentGesture = "인식 중...";
+                }
+                gestureText.innerText = currentGesture;
+            } else {
+                currentGesture = "";
+                gestureText.innerText = "손이 보이지 않음";
             }
             canvasCtx.restore();
         }
 
-        // 4. 게임 진행 (기존 유지)
+        // 4. 게임 승패 판정
         document.getElementById('btn-game').onclick = () => {
-            if (!currentGesture) {
-                alert("카메라에 손을 보여주세요!");
+            if (!currentGesture || currentGesture === "인식 중...") {
+                alert("카메라에 손을 정확히 보여주세요! (가위, 바위, 보)");
                 return;
             }
+
             const rps = ["가위", "바위", "보"];
             const computer = rps[Math.floor(Math.random() * 3)];
             
+            let resultMsg = "";
             if (currentGesture === computer) {
-                resultText.innerText = `무승부! (컴퓨터: ${computer})`;
+                resultMsg = `무승부! (컴퓨터: ${computer})`;
+                resultText.style.color = "#feca57";
             } else if (
                 (currentGesture === "가위" && computer === "바위") ||
                 (currentGesture === "바위" && computer === "보") ||
                 (currentGesture === "보" && computer === "가위")
             ) {
-                resultText.innerText = `패배! 🔨 (컴퓨터: ${computer})`;
-                hitHammer(); 
+                resultMsg = `패배! 🔨 (컴퓨터: ${computer})`;
+                resultText.style.color = "#ff6b6b";
+                hitHammer(); // 지면 아두이노에 신호 전송
             } else {
-                resultText.innerText = `승리! 🎉 (컴퓨터: ${computer})`;
+                resultMsg = `승리! 🎉 (컴퓨터: ${computer})`;
+                resultText.style.color = "#1dd1a1";
             }
+            resultText.innerText = resultMsg;
         };
 
-        const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
-        hands.setOptions({ maxNumHands: 1, modelComplexity: 0, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+        const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net{file}`});
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.7,
+            minTrackingConfidence: 0.7
+        });
         hands.onResults(onResults);
 
         const camera = new Camera(videoElement, {
             onFrame: async () => { await hands.send({image: videoElement}); },
-            width: 640, height: 480
+            width: 640,
+            height: 480
         });
         camera.start();
     </script>
