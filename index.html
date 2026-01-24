@@ -2,8 +2,8 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>AI 로봇망치 게임 (Serial/HC-06 지원)</title>
-    <!-- 라이브러리 경로 보강 -->
+    <title>AI 로봇망치 게임 (Vercel 배포용)</title>
+    <!-- 2026년 기준 정확한 MediaPipe 라이브러리 경로 -->
     <script src="https://cdn.jsdelivr.net"></script>
     <script src="https://cdn.jsdelivr.net"></script>
     <script src="https://cdn.jsdelivr.net"></script>
@@ -29,7 +29,7 @@
     </div>
 
     <div class="info-card">
-        <div id="status">카메라 권한을 확인하고 아두이노를 연결하세요.</div>
+        <div id="status">카메라 준비 중... 아두이노를 연결하세요.</div>
         <button id="btn-serial">1. 아두이노(USB/HC-06) 연결</button>
         <button id="btn-game">2. 게임 시작!</button>
         <div id="result-display">준비하세요!</div>
@@ -45,30 +45,39 @@
         let port;
         let currentGesture = "";
 
-        // 1. 아두이노 연결 (Web Serial)
+        // 1. 아두이노 연결 (Web Serial API) - Vercel HTTPS 환경에서 작동
         document.getElementById('btn-serial').onclick = async () => {
             try {
-                // HC-06을 PC 설정에서 페어링했다면 목록에 나타납니다.
+                // 페어링된 HC-06이 있다면 포트 선택 창에 'Bluetooth Serial' 등으로 나타납니다.
                 port = await navigator.serial.requestPort();
                 await port.open({ baudRate: 9600 });
-                statusText.innerText = "✅ 기기 연결 성공!";
+                statusText.innerText = "✅ 기기 연결 성공! (시리얼 포트 개방)";
                 statusText.style.color = "#2ecc71";
             } catch (err) {
                 statusText.innerText = "❌ 연결 실패: " + err.message;
+                console.error("Serial Connection Error:", err);
             }
         };
 
-        // 2. 'H' 신호 전송
+        // 2. 'H' 신호 전송 로직 (안정화 버전)
         async function hitHammer() {
             if (port && port.writable) {
                 const writer = port.writable.getWriter();
-                const data = new Uint8Array([72]); // 'H'
-                await writer.write(data);
-                writer.releaseLock();
+                try {
+                    const data = new Uint8Array([72]); // ASCII 'H' 전송
+                    await writer.write(data);
+                    console.log("신호 'H' 전송 완료");
+                } catch (error) {
+                    console.error("데이터 전송 중 오류 발생:", error);
+                } finally {
+                    writer.releaseLock();
+                }
+            } else {
+                console.warn("포트가 연결되지 않았거나 쓰기 불가능 상태입니다.");
             }
         }
 
-        // 3. MediaPipe 손 인식 (2026 최적화 로직)
+        // 3. MediaPipe 손 인식 로직
         function onResults(results) {
             canvasCtx.save();
             canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
@@ -78,7 +87,7 @@
                 const landmarks = results.multiHandLandmarks[0];
                 drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: '#00FF00', lineWidth: 2});
 
-                // 마디 좌표(y값) 비교
+                // 손가락 펼침 감지
                 const indexOpen = landmarks[8].y < landmarks[6].y;
                 const middleOpen = landmarks[12].y < landmarks[10].y;
                 const ringOpen = landmarks[16].y < landmarks[14].y;
@@ -93,35 +102,52 @@
             canvasCtx.restore();
         }
 
-        // 4. 게임 로직
+        // 4. 게임 승패 판정
         document.getElementById('btn-game').onclick = () => {
-            if (!currentGesture) { alert("손을 보여주세요!"); return; }
+            if (!currentGesture) {
+                alert("카메라에 손을 보여주세요!");
+                return;
+            }
+
             const rps = ["가위", "바위", "보"];
             const computer = rps[Math.floor(Math.random() * 3)];
             
             if (currentGesture === computer) {
                 resultText.innerText = `무승부! (컴:${computer})`;
+                resultText.style.color = "#f1c40f";
             } else if (
                 (currentGesture === "가위" && computer === "바위") ||
                 (currentGesture === "바위" && computer === "보") ||
                 (currentGesture === "보" && computer === "가위")
             ) {
                 resultText.innerText = `패배! 🔨 (컴:${computer})`;
-                hitHammer();
+                resultText.style.color = "#e74c3c";
+                hitHammer(); // 지면 아두이노로 'H' 전송
             } else {
                 resultText.innerText = `승리! 🎉 (컴:${computer})`;
+                resultText.style.color = "#2ecc71";
             }
         };
 
+        // 5. MediaPipe 초기화 (경로 수정 완료)
         const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net{file}`});
-        hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.7, minTrackingConfidence: 0.7 });
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.7,
+            minTrackingConfidence: 0.7
+        });
         hands.onResults(onResults);
 
         const camera = new Camera(videoElement, {
             onFrame: async () => { await hands.send({image: videoElement}); },
             width: 640, height: 480
         });
-        camera.start();
+
+        // 카메라 시작 및 에러 처리
+        camera.start()
+            .then(() => { statusText.innerText = "✅ 카메라 준비 완료! 아두이노를 연결하세요."; })
+            .catch(err => { statusText.innerText = "❌ 카메라 오류: " + err.message; });
     </script>
 </body>
 </html>
