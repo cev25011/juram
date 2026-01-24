@@ -2,39 +2,39 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>AI 가위바위보 망치 게임 (USB Serial)</title>
+    <title>AI 가위바위보 로봇 망치 (정밀 인식)</title>
     <script src="https://cdn.jsdelivr.net"></script>
     <script src="https://cdn.jsdelivr.net"></script>
     <script src="https://cdn.jsdelivr.net"></script>
     <style>
-        body { text-align: center; font-family: 'Malgun Gothic', sans-serif; background: #1a1a1a; color: white; margin: 0; padding: 20px; }
-        .container { position: relative; display: inline-block; border: 5px solid #444; border-radius: 20px; overflow: hidden; background: #000; }
-        canvas { transform: rotateY(180deg); display: block; max-width: 100%; height: auto; }
-        .info-panel { margin: 20px auto; max-width: 600px; padding: 20px; background: #333; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
-        button { padding: 15px 25px; font-size: 18px; font-weight: bold; cursor: pointer; border: none; border-radius: 8px; transition: 0.2s; margin: 10px; }
-        #btn-serial { background: #ff9f43; color: white; }
-        #btn-game { background: #10ac84; color: white; }
-        button:hover { opacity: 0.8; transform: scale(1.05); }
-        button:disabled { background: #555; cursor: not-allowed; }
-        #status { color: #feca57; font-size: 1.2rem; margin-bottom: 10px; }
-        #result-display { font-size: 2.5rem; font-weight: bold; color: #ff6b6b; min-height: 60px; margin-top: 10px; }
-        .gesture-badge { display: inline-block; padding: 5px 15px; background: #576574; border-radius: 20px; margin-top: 5px; }
+        body { text-align: center; font-family: 'Malgun Gothic', sans-serif; background: #1e1e2e; color: #eff1f5; margin: 0; padding: 20px; }
+        .container { position: relative; display: inline-block; border: 4px solid #89b4fa; border-radius: 20px; background: #000; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        canvas { transform: rotateY(180deg); display: block; border-radius: 16px; }
+        .control-panel { margin: 20px auto; max-width: 600px; padding: 20px; background: #313244; border-radius: 15px; }
+        button { padding: 15px 30px; font-size: 18px; font-weight: bold; cursor: pointer; border: none; border-radius: 10px; transition: 0.2s; margin: 10px; }
+        #btn-serial { background: #fab387; color: #11111b; }
+        #btn-game { background: #a6e3a1; color: #11111b; }
+        button:hover { transform: translateY(-2px); opacity: 0.9; }
+        #status { color: #f9e2af; font-size: 1.1rem; margin-bottom: 10px; font-weight: bold; }
+        #result-display { font-size: 2.8rem; font-weight: bold; color: #f38ba8; margin: 15px 0; min-height: 70px; }
+        .gesture-info { background: #45475a; padding: 10px; border-radius: 10px; display: inline-block; margin-top: 10px; }
     </style>
 </head>
 <body>
-    <h1>✊✌️✋ AI 로봇망치 게임</h1>
+    <h1>✊✌️✋ AI 로봇 망치 게임</h1>
     
     <div class="container">
         <canvas class="output_canvas" width="640" height="480"></canvas>
         <video class="input_video" style="display:none;"></video>
     </div>
 
-    <div class="info-panel">
-        <div id="status">아두이노 연결이 필요합니다.</div>
-        <button id="btn-serial">1. 아두이노(USB) 연결</button>
-        <button id="btn-game">2. 게임 시작!</button>
-        <div class="gesture-badge">인식 결과: <span id="current-gesture">대기 중...</span></div>
-        <div id="result-display">준비하세요!</div>
+    <div class="control-panel">
+        <div id="status">아두이노 USB를 연결해주세요.</div>
+        <button id="btn-serial">1. 아두이노 연결</button>
+        <button id="btn-game">2. 가위바위보!</button>
+        <br>
+        <div class="gesture-info">현재 손상태: <span id="current-gesture" style="color:#89b4fa">인식 대기 중</span></div>
+        <div id="result-display">준비...</div>
     </div>
 
     <script>
@@ -48,30 +48,29 @@
         let port;
         let currentGesture = "";
 
-        // 1. Web Serial 연결 (USB)
+        // 1. 아두이노 시리얼 연결
         document.getElementById('btn-serial').onclick = async () => {
             try {
                 port = await navigator.serial.requestPort();
                 await port.open({ baudRate: 9600 });
-                statusText.innerText = "✅ 아두이노 연결됨 (USB)";
-                statusText.style.color = "#1dd1a1";
+                statusText.innerText = "✅ 아두이노가 연결되었습니다!";
+                statusText.style.color = "#a6e3a1";
             } catch (err) {
-                statusText.innerText = "❌ 연결 오류: " + err.message;
+                statusText.innerText = "❌ 연결 실패: " + err.message;
             }
         };
 
-        // 2. 아두이노로 'H' 신호 전송
+        // 2. 아두이노로 'H' 신호 전송 (망치 작동)
         async function hitHammer() {
             if (port && port.writable) {
                 const writer = port.writable.getWriter();
-                const data = new Uint8Array([72]); // ASCII 'H'
+                const data = new Uint8Array([72]); // 'H' (ASCII 72)
                 await writer.write(data);
                 writer.releaseLock();
-                console.log("망치 신호(H) 전송 완료");
             }
         }
 
-        // 3. MediaPipe 손 인식 로직
+        // 3. MediaPipe 정밀 인식 로직
         function onResults(results) {
             canvasCtx.save();
             canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
@@ -79,74 +78,74 @@
 
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                 const landmarks = results.multiHandLandmarks[0];
-                drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: '#00FF00', lineWidth: 3});
-                drawLandmarks(canvasCtx, landmarks, {color: '#FF0000', lineWidth: 1});
+                drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: '#89b4fa', lineWidth: 4});
+                drawLandmarks(canvasCtx, landmarks, {color: '#f38ba8', lineWidth: 2});
 
-                // 손가락 펼침 판정 (정확한 마디 좌표 비교)
+                // 손가락 끝과 마디 위치 비교 (정밀 판정)
+                const thumbOpen = landmarks[4].x < landmarks[3].x; // 단순화된 엄지 판정
                 const indexOpen = landmarks[8].y < landmarks[6].y;
                 const middleOpen = landmarks[12].y < landmarks[10].y;
                 const ringOpen = landmarks[16].y < landmarks[14].y;
                 const pinkyOpen = landmarks[20].y < landmarks[18].y;
 
+                let detected = "";
                 if (indexOpen && middleOpen && ringOpen && pinkyOpen) {
-                    currentGesture = "보";
+                    detected = "보";
                 } else if (indexOpen && middleOpen && !ringOpen && !pinkyOpen) {
-                    currentGesture = "가위";
+                    detected = "가위";
                 } else if (!indexOpen && !middleOpen && !ringOpen && !pinkyOpen) {
-                    currentGesture = "바위";
+                    detected = "바위";
                 } else {
-                    currentGesture = "인식 중...";
+                    detected = "분석 중...";
                 }
+
+                currentGesture = detected;
                 gestureText.innerText = currentGesture;
             } else {
-                currentGesture = "";
-                gestureText.innerText = "손이 보이지 않음";
+                gestureText.innerText = "손을 보여주세요";
             }
             canvasCtx.restore();
         }
 
-        // 4. 게임 승패 판정
+        // 4. 게임 진행
         document.getElementById('btn-game').onclick = () => {
-            if (!currentGesture || currentGesture === "인식 중...") {
-                alert("카메라에 손을 정확히 보여주세요! (가위, 바위, 보)");
+            if (!currentGesture || currentGesture === "분석 중...") {
+                alert("손동작을 인식하지 못했습니다.");
                 return;
             }
 
             const rps = ["가위", "바위", "보"];
             const computer = rps[Math.floor(Math.random() * 3)];
             
-            let resultMsg = "";
             if (currentGesture === computer) {
-                resultMsg = `무승부! (컴퓨터: ${computer})`;
-                resultText.style.color = "#feca57";
+                resultText.innerText = `무승부! (컴퓨터: ${computer})`;
+                resultText.style.color = "#f9e2af";
             } else if (
                 (currentGesture === "가위" && computer === "바위") ||
                 (currentGesture === "바위" && computer === "보") ||
                 (currentGesture === "보" && computer === "가위")
             ) {
-                resultMsg = `패배! 🔨 (컴퓨터: ${computer})`;
-                resultText.style.color = "#ff6b6b";
-                hitHammer(); // 지면 아두이노에 신호 전송
+                resultText.innerText = `패배! 🔨 (컴퓨터: ${computer})`;
+                resultText.style.color = "#f38ba8";
+                hitHammer(); // 패배 시 아두이노 망치 가동
             } else {
-                resultMsg = `승리! 🎉 (컴퓨터: ${computer})`;
-                resultText.style.color = "#1dd1a1";
+                resultText.innerText = `승리! 🎉 (컴퓨터: ${computer})`;
+                resultText.style.color = "#a6e3a1";
             }
-            resultText.innerText = resultMsg;
         };
 
         const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net{file}`});
         hands.setOptions({
             maxNumHands: 1,
             modelComplexity: 1,
-            minDetectionConfidence: 0.7,
-            minTrackingConfidence: 0.7
+            minDetectionConfidence: 0.75,
+            minTrackingConfidence: 0.75
         });
         hands.onResults(onResults);
 
         const camera = new Camera(videoElement, {
             onFrame: async () => { await hands.send({image: videoElement}); },
-            width: 640,
-            height: 480
+            width: 640, height: 480
         });
         camera.start();
     </script>
