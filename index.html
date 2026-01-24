@@ -1,58 +1,25 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-    <meta charset="UTF-8">
-    <title>AI 로봇망치 게임 (테스트 버튼 추가)</title>
-    <!-- 라이브러리 경로 보강 -->
-    <script src="https://cdn.jsdelivr.net"></script>
-    <script src="https://cdn.jsdelivr.net"></script>
-    <script src="https://cdn.jsdelivr.net"></script>
-    <style>
-        body { text-align: center; font-family: 'Malgun Gothic', sans-serif; background: #1a1a1a; color: white; margin: 0; padding: 20px; }
-        .container { position: relative; display: inline-block; border: 5px solid #444; border-radius: 20px; background: #000; overflow: hidden; }
-        canvas { transform: rotateY(180deg); display: block; max-width: 100%; height: auto; }
-        .info-card { margin: 20px auto; max-width: 600px; padding: 20px; background: #2d2d2d; border-radius: 15px; box-shadow: 0 5px 20px rgba(0,0,0,0.5); }
-        button { padding: 15px 25px; font-size: 18px; font-weight: bold; cursor: pointer; border: none; border-radius: 8px; transition: 0.3s; margin: 5px; }
-        #btn-serial { background: #f39c12; color: white; }
-        #btn-game { background: #27ae60; color: white; }
-        #btn-test { background: #3498db; color: white; } /* 새 버튼 스타일 */
-        button:hover { opacity: 0.8; transform: scale(1.05); }
-        #status { color: #f1c40f; font-size: 1.1rem; margin-bottom: 10px; }
-        #result-display { font-size: 2.5rem; font-weight: bold; color: #e74c3c; margin: 15px 0; min-height: 60px; }
-    </style>
-</head>
+<!-- ... (HTML 헤드 및 스타일 생략) ... -->
 <body>
-    <h1>✊✌️✋ AI 로봇망치 (2026 Edition)</h1>
+    <h1>✊✌️✋ AI 로봇망치 (숫자 신호 방식)</h1>
     
-    <div class="container">
-        <canvas class="output_canvas" width="640" height="480"></canvas>
-        <video class="input_video" style="display:none;"></video>
-    </div>
+    <!-- ... (카메라 및 UI 카드 부분 생략) ... -->
 
     <div class="info-card">
         <div id="status">카메라 준비 중... 아두이노를 연결하세요.</div>
         <button id="btn-serial">1. 아두이노(USB/HC-06) 연결</button>
         <button id="btn-game">2. 게임 시작!</button>
-        <!-- 서보모터 테스트 버튼 추가 -->
-        <button id="btn-test">3. 서보모터 테스트 (H 전송)</button>
+        <button id="btn-test">3. 서보모터 테스트 (숫자 1 전송)</button> <!-- 버튼 텍스트 변경 -->
         <div id="result-display">준비하세요!</div>
     </div>
 
     <script>
-        const videoElement = document.querySelector('.input_video');
-        const canvasElement = document.querySelector('.output_canvas');
-        const canvasCtx = canvasElement.getContext('2d');
-        const statusText = document.getElementById('status');
-        const resultText = document.getElementById('result-display');
+        // ... (const 및 let 변수 선언 생략) ...
         
-        let port;
-        let currentGesture = "";
-
         // 1. 아두이노 연결 (Web Serial API)
         document.getElementById('btn-serial').onclick = async () => {
             try {
                 port = await navigator.serial.requestPort();
-                await port.open({ baudRate: 38400 });
+                await port.open({ baudRate: 9600 }); // 속도는 9600으로 고정하고 테스트
                 statusText.innerText = "✅ 기기 연결 성공! (시리얼 포트 개방)";
                 statusText.style.color = "#2ecc71";
             } catch (err) {
@@ -60,15 +27,16 @@
             }
         };
 
-        // 2. 'H' 신호 전송 (테스트 버튼이 이 함수를 직접 호출합니다)
+        // 2. 숫자 '1' 신호 전송
         async function hitHammer() {
             if (port && port.writable) {
                 const writer = port.writable.getWriter();
                 try {
-                    const data = new Uint8Array([72]); // ASCII 'H' 전송
+                    // 숫자 '1'의 ASCII 값(49)을 바이트 배열로 전송
+                    const data = new Uint8Array([49]); 
                     await writer.write(data);
-                    console.log("신호 'H' 전송 완료");
-                    resultText.innerText = "🔨 테스트 신호 전송됨!";
+                    console.log("신호 '1' 전송 완료");
+                    resultText.innerText = "🔨 테스트 신호 (1) 전송됨!";
                     resultText.style.color = "#3498db";
                 } catch (error) {
                     console.error("데이터 전송 중 오류 발생:", error);
@@ -83,40 +51,8 @@
         // 3. 테스트 버튼 클릭 이벤트 연결
         document.getElementById('btn-test').onclick = hitHammer;
 
-        // 4. MediaPipe 손 인식 (카메라가 안 뜰 경우 무시해도 됩니다)
-        function onResults(results) { /* ... 기존과 동일 ... */
-            canvasCtx.save();
-            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
-            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-                const landmarks = results.multiHandLandmarks;
-                const indexOpen = landmarks.y < landmarks.y; const middleOpen = landmarks.y < landmarks.y; const ringOpen = landmarks.y < landmarks.y; const pinkyOpen = landmarks.y < landmarks.y;
-                if (indexOpen && middleOpen && ringOpen && pinkyOpen) currentGesture = "보";
-                else if (indexOpen && middleOpen && !ringOpen) currentGesture = "가위";
-                else if (!indexOpen && !middleOpen && !ringOpen && !pinkyOpen) currentGesture = "바위";
-                statusText.innerText = "감지됨: " + currentGesture;
-            }
-            canvasCtx.restore();
-        }
+        // ... (onResults, document.getElementById('btn-game').onclick, hands, camera 설정 부분은 동일) ...
 
-        // 5. 게임 로직 (hitHammer() 호출 부분은 그대로 유지)
-        document.getElementById('btn-game').onclick = () => {
-            /* ... 기존 게임 로직과 동일 ... */
-            if (!currentGesture) { alert("손을 보여주세요!"); return; }
-            const rps = ["가위", "바위", "보"]; const computer = rps[Math.floor(Math.random() * 3)];
-            if (currentGesture === computer) { resultText.innerText = `무승부! (컴:${computer})`; resultText.style.color = "#f1c40f"; } 
-            else if ((currentGesture === "가위" && computer === "바위") || (currentGesture === "바위" && computer === "보") || (currentGesture === "보" && computer === "가위")) {
-                resultText.innerText = `패배! 🔨 (컴:${computer})`; resultText.style.color = "#e74c3c";
-                hitHammer(); // 패배 시 신호 전송
-            } else { resultText.innerText = `승리! 🎉 (컴:${computer})`; resultText.style.color = "#2ecc71"; }
-        };
-
-        // 6. MediaPipe 및 카메라 설정
-        const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net{file}`});
-        hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.7, minTrackingConfidence: 0.7 });
-        hands.onResults(onResults);
-        const camera = new Camera(videoElement, { onFrame: async () => { await hands.send({image: videoElement}); }, width: 640, height: 480 });
-        camera.start().then(() => { statusText.innerText = "✅ 카메라 준비 완료! 아두이노를 연결하세요."; }).catch(err => { statusText.innerText = "❌ 카메라 오류: " + err.message; });
     </script>
 </body>
 </html>
