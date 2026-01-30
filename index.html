@@ -1,30 +1,33 @@
 <!DOCTYPE html>
-<html>
+<html lang="ko">
 <head>
-    <title>AI 가위바위보 - 디버깅 버전</title>
+    <meta charset="UTF-8">
+    <title>AI 가위바위보 로봇</title>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/hand-pose-detection"></script>
     <style>
-        body { font-family: 'Malgun Gothic', sans-serif; text-align: center; background: #2f3640; color: white; }
-        canvas { transform: scaleX(-1); border: 5px solid #00a8ff; border-radius: 15px; background: black; }
-        .btn-group { margin: 20px; }
-        button { padding: 12px 25px; font-size: 16px; margin: 5px; cursor: pointer; border-radius: 8px; border: none; }
-        .btn-blue { background: #00a8ff; color: white; }
-        .btn-red { background: #e84118; color: white; }
-        #status { font-size: 20px; margin: 15px; color: #fbc531; }
+        body { font-family: sans-serif; text-align: center; background: #1e1e2e; color: white; margin: 0; padding: 20px; }
+        #video-container { position: relative; display: inline-block; margin-top: 20px; }
+        canvas { transform: scaleX(-1); border: 4px solid #f5c2e7; border-radius: 15px; width: 100%; max-width: 640px; }
+        .controls { margin-bottom: 20px; }
+        button { padding: 15px 30px; font-size: 18px; font-weight: bold; cursor: pointer; border-radius: 10px; border: none; margin: 5px; transition: 0.3s; }
+        .btn-connect { background: #fab387; color: #11111b; }
+        .btn-play { background: #a6e3a1; color: #11111b; }
+        button:hover { opacity: 0.8; transform: scale(1.05); }
+        #status { font-size: 22px; margin: 15px; height: 30px; color: #89b4fa; }
     </style>
 </head>
 <body>
-    <h1>AI 가위바위보 로봇</h1>
+    <h1>AI 가위바위보 vs 아두이노</h1>
     
-    <div class="btn-group">
-        <button class="btn-blue" onclick="connectSerial()">1. 블루투스 연결</button>
-        <button class="btn-red" onclick="playGame()">2. 가위바위보!</button>
+    <div class="controls">
+        <button class="btn-connect" onclick="connectSerial()">1. 블루투스 연결</button>
+        <button class="btn-play" onclick="playGame()">2. 가위바위보!</button>
     </div>
 
-    <div id="status">카메라 초기화 중...</div>
+    <div id="status">카메라를 불러오는 중...</div>
     
-    <div style="position: relative;">
+    <div id="video-container">
         <video id="video" autoplay playsinline style="display:none;"></video>
         <canvas id="canvas"></canvas>
     </div>
@@ -36,99 +39,80 @@
         const ctx = canvas.getContext('2d');
         const statusText = document.getElementById('status');
 
-        // 카메라 설정
-        async function setupCamera() {
+        // 1. 카메라 및 AI 초기화
+        async function init() {
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { width: 640, height: 480 } 
-                });
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
                 video.srcObject = stream;
-                return new Promise((resolve) => {
-                    video.onloadedmetadata = () => {
-                        canvas.width = video.videoWidth;
-                        canvas.height = video.videoHeight;
-                        resolve(video);
-                    };
-                });
-            } catch (err) {
-                statusText.innerText = "카메라 접근 실패: " + err.message;
-                console.error(err);
-            }
-        }
-
-        // AI 모델 로드
-        async function initAI() {
-            try {
+                
                 const model = handPoseDetection.SupportedModels.MediaPipeHands;
                 detector = await handPoseDetection.createDetector(model, {
                     runtime: 'mediapipe',
                     solutionPath: 'https://cdn.jsdelivr.net/npm/@mediapipe/hands'
                 });
-                statusText.innerText = "준비 완료! 블루투스를 연결하세요.";
+                
+                statusText.innerText = "준비 완료! 블루투스를 연결해 주세요.";
                 draw();
             } catch (err) {
-                statusText.innerText = "AI 로드 실패: " + err.message;
+                statusText.innerText = "오류: 카메라를 찾을 수 없거나 권한이 없습니다.";
             }
         }
 
         function draw() {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
             requestAnimationFrame(draw);
         }
 
+        // 2. 블루투스 연결 (Web Serial API)
         async function connectSerial() {
             try {
                 port = await navigator.serial.requestPort();
                 await port.open({ baudRate: 9600 });
                 writer = port.writable.getWriter();
-                statusText.innerText = "블루투스 연결됨! 게임 시작 가능.";
+                statusText.innerText = "블루투스 연결 성공! 게임을 시작하세요.";
             } catch (err) {
-                statusText.innerText = "연결 오류: " + err.message;
+                statusText.innerText = "블루투스 연결 실패: " + err.message;
             }
         }
 
+        // 3. 게임 실행
         async function playGame() {
             if (!detector) return;
-            statusText.innerText = "안 내면 진 거 가위바위보!";
+            statusText.innerText = "가위... 바위... 보!!!";
             
-            const hands = await detector.estimateHands(video);
-            if (hands.length > 0) {
-                const move = getMove(hands[0].keypoints);
-                const aiChoices = ["Rock", "Scissors", "Paper"];
-                const aiMove = aiChoices[Math.floor(Math.random() * 3)];
-                
-                let resultMsg = `나: ${translate(move)} vs AI: ${translate(aiMove)}`;
-                
-                if ((move === "Rock" && aiMove === "Paper") || 
-                    (move === "Scissors" && aiMove === "Rock") || 
-                    (move === "Paper" && aiMove === "Scissors")) {
-                    statusText.innerHTML = resultMsg + "<br><span style='color:red'>졌습니다! (서보 가동)</span>";
-                    if (writer) await writer.write(new TextEncoder().encode('L'));
-                } else if (move === aiMove) {
-                    statusText.innerText = resultMsg + " - 비겼네요!";
+            setTimeout(async () => {
+                const hands = await detector.estimateHands(video);
+                if (hands.length > 0) {
+                    const playerMove = getMove(hands[0].keypoints);
+                    const moves = ["Rock", "Scissors", "Paper"];
+                    const aiMove = moves[Math.floor(Math.random() * 3)];
+                    
+                    let result = "";
+                    let arduinoCmd = "";
+
+                    // 승패 로직 (사용자가 지는 경우)
+                    if ((playerMove === "Rock" && aiMove === "Paper") || 
+                        (playerMove === "Scissors" && aiMove === "Rock") || 
+                        (playerMove === "Paper" && aiMove === "Scissors")) {
+                        result = `졌습니다! 😭 (AI: ${trans(aiMove)})`;
+                        arduinoCmd = 'L'; // 아두이노로 보낼 신호
+                    } else if (playerMove === aiMove) {
+                        result = `비겼습니다! 😐 (AI: ${trans(aiMove)})`;
+                    } else {
+                        result = `이겼습니다! 😎 (AI: ${trans(aiMove)})`;
+                    }
+
+                    statusText.innerText = result;
+                    if (arduinoCmd === 'L' && writer) {
+                        await writer.write(new TextEncoder().encode('L'));
+                    }
                 } else {
-                    statusText.innerText = resultMsg + " - 이겼습니다!";
+                    statusText.innerText = "손이 보이지 않습니다!";
                 }
-            } else {
-                statusText.innerText = "손이 안 보여요!";
-            }
+            }, 1000); // 1초 뒤 인식
         }
 
         function getMove(keypoints) {
-            // 손가락 펼쳐진 개수로 판단 (간단 버전)
-            const tips = [8, 12, 16, 20];
-            let up = 0;
-            tips.forEach(t => { if(keypoints[t].y < keypoints[t-2].y) up++; });
-            if (up <= 1) return "Rock";
-            if (up >= 4) return "Paper";
-            return "Scissors";
-        }
-
-        function translate(m) {
-            return m === "Rock" ? "묵" : m === "Scissors" ? "찌" : "빠";
-        }
-
-        setupCamera().then(initAI);
-    </script>
-</body>
-</html>
+            const tips = [8, 12
