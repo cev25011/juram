@@ -1,58 +1,122 @@
-<!-- ... (HTML 헤드 및 스타일 생략) ... -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AI 가위바위보 - 아두이노 연동</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/models/hand-pose-detection"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands"></script>
+    <style>
+        body { font-family: sans-serif; text-align: center; background: #f0f0f0; }
+        canvas { transform: scaleX(-1); border: 2px solid #333; border-radius: 10px; }
+        .controls { margin: 20px; }
+        button { padding: 10px 20px; font-size: 16px; cursor: pointer; }
+        #status { font-size: 24px; font-weight: bold; color: #ff4757; }
+    </style>
+</head>
 <body>
-    <h1>✊✌️✋ AI 로봇망치 (숫자 신호 방식)</h1>
-    
-    <!-- ... (카메라 및 UI 카드 부분 생략) ... -->
-
-    <div class="info-card">
-        <div id="status">카메라 준비 중... 아두이노를 연결하세요.</div>
-        <button id="btn-serial">1. 아두이노(USB/HC-06) 연결</button>
-        <button id="btn-game">2. 게임 시작!</button>
-        <button id="btn-test">3. 서보모터 테스트 (숫자 1 전송)</button> <!-- 버튼 텍스트 변경 -->
-        <div id="result-display">준비하세요!</div>
+    <h1>AI 가위바위보 (Bluetooth)</h1>
+    <div class="controls">
+        <button onclick="connectSerial()">1. 블루투스 연결</button>
+        <button onclick="playGame()">2. 가위바위보!</button>
+    </div>
+    <div id="status">연결 버튼을 눌러주세요</div>
+    <div style="position: relative; display: inline-block;">
+        <video id="video" width="640" height="480" autoplay playsinline style="display:none;"></video>
+        <canvas id="canvas"></canvas>
     </div>
 
     <script>
-        // ... (const 및 let 변수 선언 생략) ...
-        
-        // 1. 아두이노 연결 (Web Serial API)
-        document.getElementById('btn-serial').onclick = async () => {
+        let port;
+        let writer;
+        let detector;
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        // 1. Web Serial API를 이용한 블루투스 연결
+        async function connectSerial() {
             try {
                 port = await navigator.serial.requestPort();
-                await port.open({ baudRate: 9600 }); // 속도는 9600으로 고정하고 테스트
-                statusText.innerText = "✅ 기기 연결 성공! (시리얼 포트 개방)";
-                statusText.style.color = "#2ecc71";
+                await port.open({ baudRate: 9600 });
+                writer = port.writable.getWriter();
+                document.getElementById('status').innerText = "블루투스 연결 성공!";
             } catch (err) {
-                statusText.innerText = "❌ 연결 실패: " + err.message;
-            }
-        };
-
-        // 2. 숫자 '1' 신호 전송
-        async function hitHammer() {
-            if (port && port.writable) {
-                const writer = port.writable.getWriter();
-                try {
-                    // 숫자 '1'의 ASCII 값(49)을 바이트 배열로 전송
-                    const data = new Uint8Array([49]); 
-                    await writer.write(data);
-                    console.log("신호 '1' 전송 완료");
-                    resultText.innerText = "🔨 테스트 신호 (1) 전송됨!";
-                    resultText.style.color = "#3498db";
-                } catch (error) {
-                    console.error("데이터 전송 중 오류 발생:", error);
-                } finally {
-                    writer.releaseLock();
-                }
-            } else {
-                alert("먼저 '1. 아두이노 연결' 버튼을 눌러주세요!");
+                console.error(err);
+                alert("연결에 실패했습니다.");
             }
         }
-        
-        // 3. 테스트 버튼 클릭 이벤트 연결
-        document.getElementById('btn-test').onclick = hitHammer;
 
-        // ... (onResults, document.getElementById('btn-game').onclick, hands, camera 설정 부분은 동일) ...
+        // 2. AI 모델 로드 및 카메라 설정
+        async function setupAI() {
+            const model = handPoseDetection.SupportedModels.MediaPipeHands;
+            detector = await handPoseDetection.createDetector(model, {
+                runtime: 'mediapipe',
+                solutionPath: 'https://cdn.jsdelivr.net/npm/@mediapipe/hands'
+            });
+            
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            video.srcObject = stream;
+            
+            video.onloadedmetadata = () => {
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                draw();
+            };
+        }
 
+        async function draw() {
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            requestAnimationFrame(draw);
+        }
+
+        // 3. 가위바위보 게임 로직
+        async function playGame() {
+            if (!detector) return;
+            document.getElementById('status').innerText = "결과 계산 중...";
+            
+            const hands = await detector.estimateHands(video);
+            if (hands.length > 0) {
+                const move = getMove(hands[0].keypoints);
+                const aiMoves = ["Rock", "Scissors", "Paper"];
+                const aiMove = aiMoves[Math.floor(Math.random() * 3)];
+                
+                let result = "";
+                // 승패 판단 (사용자가 지는 경우 체크)
+                if ((move === "Rock" && aiMove === "Paper") || 
+                    (move === "Scissors" && aiMove === "Rock") || 
+                    (move === "Paper" && aiMove === "Scissors")) {
+                    result = `AI 승리! (${aiMove} vs ${move})`;
+                    sendToArduino('L'); // 아두이노에 'L' 전송
+                } else if (move === aiMove) {
+                    result = `비겼습니다! (${aiMove})`;
+                } else {
+                    result = `당신이 이겼습니다! (${aiMove} vs ${move})`;
+                }
+                document.getElementById('status').innerText = result;
+            } else {
+                document.getElementById('status').innerText = "손이 보이지 않아요!";
+            }
+        }
+
+        function getMove(keypoints) {
+            // 단순화된 로직: 손가락 끝점의 높이로 판단
+            const tips = [8, 12, 16, 20]; // 검지, 중지, 약지, 소지
+            let upCount = 0;
+            tips.forEach(idx => {
+                if (keypoints[idx].y < keypoints[idx-2].y) upCount++;
+            });
+            if (upCount <= 1) return "Rock";
+            if (upCount >= 4) return "Paper";
+            return "Scissors";
+        }
+
+        async function sendToArduino(char) {
+            if (writer) {
+                const data = new TextEncoder().encode(char);
+                await writer.write(data);
+            }
+        }
+
+        setupAI();
     </script>
 </body>
 </html>
