@@ -1,122 +1,134 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>AI 가위바위보 - 아두이노 연동</title>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/models/hand-pose-detection"></script>
+    <title>AI 가위바위보 - 디버깅 버전</title>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/hand-pose-detection"></script>
     <style>
-        body { font-family: sans-serif; text-align: center; background: #f0f0f0; }
-        canvas { transform: scaleX(-1); border: 2px solid #333; border-radius: 10px; }
-        .controls { margin: 20px; }
-        button { padding: 10px 20px; font-size: 16px; cursor: pointer; }
-        #status { font-size: 24px; font-weight: bold; color: #ff4757; }
+        body { font-family: 'Malgun Gothic', sans-serif; text-align: center; background: #2f3640; color: white; }
+        canvas { transform: scaleX(-1); border: 5px solid #00a8ff; border-radius: 15px; background: black; }
+        .btn-group { margin: 20px; }
+        button { padding: 12px 25px; font-size: 16px; margin: 5px; cursor: pointer; border-radius: 8px; border: none; }
+        .btn-blue { background: #00a8ff; color: white; }
+        .btn-red { background: #e84118; color: white; }
+        #status { font-size: 20px; margin: 15px; color: #fbc531; }
     </style>
 </head>
 <body>
-    <h1>AI 가위바위보 (Bluetooth)</h1>
-    <div class="controls">
-        <button onclick="connectSerial()">1. 블루투스 연결</button>
-        <button onclick="playGame()">2. 가위바위보!</button>
+    <h1>AI 가위바위보 로봇</h1>
+    
+    <div class="btn-group">
+        <button class="btn-blue" onclick="connectSerial()">1. 블루투스 연결</button>
+        <button class="btn-red" onclick="playGame()">2. 가위바위보!</button>
     </div>
-    <div id="status">연결 버튼을 눌러주세요</div>
-    <div style="position: relative; display: inline-block;">
-        <video id="video" width="640" height="480" autoplay playsinline style="display:none;"></video>
+
+    <div id="status">카메라 초기화 중...</div>
+    
+    <div style="position: relative;">
+        <video id="video" autoplay playsinline style="display:none;"></video>
         <canvas id="canvas"></canvas>
     </div>
 
     <script>
-        let port;
-        let writer;
-        let detector;
+        let port, writer, detector;
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
+        const statusText = document.getElementById('status');
 
-        // 1. Web Serial API를 이용한 블루투스 연결
+        // 카메라 설정
+        async function setupCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { width: 640, height: 480 } 
+                });
+                video.srcObject = stream;
+                return new Promise((resolve) => {
+                    video.onloadedmetadata = () => {
+                        canvas.width = video.videoWidth;
+                        canvas.height = video.videoHeight;
+                        resolve(video);
+                    };
+                });
+            } catch (err) {
+                statusText.innerText = "카메라 접근 실패: " + err.message;
+                console.error(err);
+            }
+        }
+
+        // AI 모델 로드
+        async function initAI() {
+            try {
+                const model = handPoseDetection.SupportedModels.MediaPipeHands;
+                detector = await handPoseDetection.createDetector(model, {
+                    runtime: 'mediapipe',
+                    solutionPath: 'https://cdn.jsdelivr.net/npm/@mediapipe/hands'
+                });
+                statusText.innerText = "준비 완료! 블루투스를 연결하세요.";
+                draw();
+            } catch (err) {
+                statusText.innerText = "AI 로드 실패: " + err.message;
+            }
+        }
+
+        function draw() {
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            requestAnimationFrame(draw);
+        }
+
         async function connectSerial() {
             try {
                 port = await navigator.serial.requestPort();
                 await port.open({ baudRate: 9600 });
                 writer = port.writable.getWriter();
-                document.getElementById('status').innerText = "블루투스 연결 성공!";
+                statusText.innerText = "블루투스 연결됨! 게임 시작 가능.";
             } catch (err) {
-                console.error(err);
-                alert("연결에 실패했습니다.");
+                statusText.innerText = "연결 오류: " + err.message;
             }
         }
 
-        // 2. AI 모델 로드 및 카메라 설정
-        async function setupAI() {
-            const model = handPoseDetection.SupportedModels.MediaPipeHands;
-            detector = await handPoseDetection.createDetector(model, {
-                runtime: 'mediapipe',
-                solutionPath: 'https://cdn.jsdelivr.net/npm/@mediapipe/hands'
-            });
-            
-            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-            video.srcObject = stream;
-            
-            video.onloadedmetadata = () => {
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
-                draw();
-            };
-        }
-
-        async function draw() {
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            requestAnimationFrame(draw);
-        }
-
-        // 3. 가위바위보 게임 로직
         async function playGame() {
             if (!detector) return;
-            document.getElementById('status').innerText = "결과 계산 중...";
+            statusText.innerText = "안 내면 진 거 가위바위보!";
             
             const hands = await detector.estimateHands(video);
             if (hands.length > 0) {
                 const move = getMove(hands[0].keypoints);
-                const aiMoves = ["Rock", "Scissors", "Paper"];
-                const aiMove = aiMoves[Math.floor(Math.random() * 3)];
+                const aiChoices = ["Rock", "Scissors", "Paper"];
+                const aiMove = aiChoices[Math.floor(Math.random() * 3)];
                 
-                let result = "";
-                // 승패 판단 (사용자가 지는 경우 체크)
+                let resultMsg = `나: ${translate(move)} vs AI: ${translate(aiMove)}`;
+                
                 if ((move === "Rock" && aiMove === "Paper") || 
                     (move === "Scissors" && aiMove === "Rock") || 
                     (move === "Paper" && aiMove === "Scissors")) {
-                    result = `AI 승리! (${aiMove} vs ${move})`;
-                    sendToArduino('L'); // 아두이노에 'L' 전송
+                    statusText.innerHTML = resultMsg + "<br><span style='color:red'>졌습니다! (서보 가동)</span>";
+                    if (writer) await writer.write(new TextEncoder().encode('L'));
                 } else if (move === aiMove) {
-                    result = `비겼습니다! (${aiMove})`;
+                    statusText.innerText = resultMsg + " - 비겼네요!";
                 } else {
-                    result = `당신이 이겼습니다! (${aiMove} vs ${move})`;
+                    statusText.innerText = resultMsg + " - 이겼습니다!";
                 }
-                document.getElementById('status').innerText = result;
             } else {
-                document.getElementById('status').innerText = "손이 보이지 않아요!";
+                statusText.innerText = "손이 안 보여요!";
             }
         }
 
         function getMove(keypoints) {
-            // 단순화된 로직: 손가락 끝점의 높이로 판단
-            const tips = [8, 12, 16, 20]; // 검지, 중지, 약지, 소지
-            let upCount = 0;
-            tips.forEach(idx => {
-                if (keypoints[idx].y < keypoints[idx-2].y) upCount++;
-            });
-            if (upCount <= 1) return "Rock";
-            if (upCount >= 4) return "Paper";
+            // 손가락 펼쳐진 개수로 판단 (간단 버전)
+            const tips = [8, 12, 16, 20];
+            let up = 0;
+            tips.forEach(t => { if(keypoints[t].y < keypoints[t-2].y) up++; });
+            if (up <= 1) return "Rock";
+            if (up >= 4) return "Paper";
             return "Scissors";
         }
 
-        async function sendToArduino(char) {
-            if (writer) {
-                const data = new TextEncoder().encode(char);
-                await writer.write(data);
-            }
+        function translate(m) {
+            return m === "Rock" ? "묵" : m === "Scissors" ? "찌" : "빠";
         }
 
-        setupAI();
+        setupCamera().then(initAI);
     </script>
 </body>
 </html>
